@@ -1,0 +1,15 @@
+dumps/
+dumps_unparsable/
+outputs/
+notes/
+raw/
+__pycache__/
+*.pyc
+.DS_Store
+.pytest_cache/
+
+# Scraper log, written into the working tree on every local run.
+logging.log
+
+# Claude Code local settings.
+.claude/settings.local.json

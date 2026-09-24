@@ -1,0 +1,34 @@
+name: Tests
+
+# Fast and dependency-free on purpose: the tests read carved fixtures and never
+# scrape a chain or need the exit node. Called by scrape.yml as a gate, and run
+# on every push.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # Deliberately not requirements.txt: that installs both scraper packages
+      # from git and takes minutes. The tests import scripts/ directly and need
+      # nothing but the standard library - except requests, which scripts/
+      # netiv.py imports at module scope.
+      - name: Install pytest
+        run: pip install requests pytest
+
+      - name: Run the tests
+        run: python -m pytest tests/ -v

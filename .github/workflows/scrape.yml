@@ -1,0 +1,189 @@
+name: Scrape
+
+# One job per chain: download its full price, store and promotion files, parse
+# prices and stores to CSV, and publish a raw-<CHAIN> artifact. That artifact
+# is the whole output of this repo - see scripts/package_raw.py for its layout.
+
+on:
+  schedule:
+    - cron: '0 2 * * *'      # 02:00 UTC - after the chains publish their nightly full files
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: 'Max files per chain - smoke tests only. Leave blank for a real run; a limited run publishes a partial chain.'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scrape
+  cancel-in-progress: false
+
+jobs:
+  tests:
+    uses: ./.github/workflows/tests.yml
+
+  fetch:
+    name: ${{ matrix.chain }}
+    needs: tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false          # one broken chain must not sink the others
+      max-parallel: 6
+      matrix:
+        chain:
+          - RAMI_LEVY
+          - SHUFERSAL
+          - VICTORY_NEW_SOURCE
+          - YOHANANOF
+          - OSHER_AD
+          - HAZI_HINAM
+          - TIV_TAAM
+          - YAYNO_BITAN_AND_CARREFOUR
+          - MAHSANI_ASHUK_NEW_SOURCE
+          - KING_STORE
+          - STOP_MARKET
+          - ZOL_VEBEGADOL
+          - KESHET
+          - DOR_ALON
+          - FRESH_MARKET_AND_SUPER_DOSH
+          - SUPER_PHARM
+          - YELLOW
+          # Scraped by scripts/netiv.py rather than by the library. The
+          # library's NETIV_HASED points at a host that has answered 500 for
+          # months, so it disables the chain and drops it from
+          # ScraperFactory.all_scrapers_name() - but the chain only moved, and
+          # publishes three separately-priced brands (נתיב החסד, בר-כל,
+          # שירה מרקט) at app.netiv-hesed.com. Cloudflare refuses a runner, so
+          # it goes out through the exit node; see HOME_EGRESS below.
+          - NETIV_HASED
+          # The rest of the library's scrapers. A runner's own connection is
+          # tried first, and only a chain that actually refuses it earns a
+          # place in HOME_EGRESS - which is how HET_COHEN_NEW_SOURCE, listed
+          # here, ended up routed after all.
+          - BAREKET
+          - CITY_MARKET_SHOPS
+          - GOOD_PHARM
+          - HET_COHEN_NEW_SOURCE
+          - MAAYAN_2000
+          - MESHMAT_YOSEF_1
+          - MESHMAT_YOSEF_2
+          - POLIZER
+          - SALACH_DABACH
+          - SHEFA_BARCART_ASHEM
+          - SHUK_AHIR
+          - SUPER_SAPIR
+          - SUPER_YUDA
+          - WOLT
+    env:
+      # These refuse datacenter addresses outright - Reblaze answers 247,
+      # Cloudflare answers 403, and laibcatalog just never answers. Nothing
+      # about the request is wrong; a runner is simply not allowed to ask.
+      # Their traffic leaves through a machine at home instead. OSHER_AD is in
+      # on suspicion: it downloads price files locally and only store files on
+      # a runner, which is the same shape. HET_COHEN_NEW_SOURCE is a laibcatalog
+      # chain too, and had been left on runner egress by oversight: it timed out
+      # after 30s on getbranches every night while answering in 56ms from home.
+      # NETIV_HASED was added after a runner asked. Its Cloudflare rejects the
+      # bot User-Agents from home - python-requests and curl get 403 while an
+      # empty one gets through - which made the block look like a UA rule; a
+      # runner is refused whatever UA it sends. Reading a UA rule as the whole
+      # story is how a chain ends up on runner egress and fails every night.
+      HOME_EGRESS: '["SUPER_PHARM","HAZI_HINAM","VICTORY_NEW_SOURCE","MAHSANI_ASHUK_NEW_SOURCE","OSHER_AD","HET_COHEN_NEW_SOURCE","NETIV_HASED"]'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install scraper and parser
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Free up runner disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost
+          df -h /
+
+      # Placed after pip on purpose: package downloads should not travel
+      # through a home connection, only the chain's own files.
+      #
+      # tag:scraper may reach the internet through the exit node and nothing
+      # else on the tailnet.
+      - name: Join the tailnet
+        if: contains(fromJSON(env.HOME_EGRESS), matrix.chain)
+        uses: tailscale/github-action@v3
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:scraper
+
+      - name: Leave from home
+        if: contains(fromJSON(env.HOME_EGRESS), matrix.chain)
+        # TS_EXIT_NODE is a repository *variable*, not a secret - point it at
+        # whichever machine is currently acting as the exit node and nothing
+        # here needs editing.
+        run: |
+          sudo tailscale set --exit-node='${{ vars.TS_EXIT_NODE }}'
+          echo "egress now: $(curl -s --max-time 20 https://ipinfo.io/org)"
+
+      # Three attempts, because most of what goes wrong here is weather
+      # rather than illness: a chain rate-limits the exit node for a minute, a
+      # TLS handshake dies, laibcatalog stops answering and starts again. A
+      # single attempt turns those into a whole chain missing for a day.
+      #
+      # The working directories are cleared between attempts. fetch.py fails
+      # when it finds no XML at all, so a half-finished download left behind
+      # by attempt one could let attempt two "succeed" on a fraction of the
+      # chain, which is worse than the failure it replaced.
+      #
+      # This cannot help a runner that GitHub reclaims mid-job - exit 143 takes
+      # the retry loop with it. That case is handled by .github/workflows/
+      # retry-failed-chains.yml, which re-runs the job on a fresh runner.
+      - name: Scrape and parse
+        run: |
+          for attempt in 1 2 3; do
+            echo "::group::${{ matrix.chain }} attempt $attempt of 3"
+            rm -rf dumps outputs notes
+            if python scripts/fetch.py "${{ matrix.chain }}" \
+                 --timeout 2400 \
+                 ${{ github.event.inputs.limit && format('--limit {0}', github.event.inputs.limit) || '' }}
+            then
+              echo "::endgroup::"
+              exit 0
+            fi
+            echo "::endgroup::"
+            echo "::warning::${{ matrix.chain }} attempt $attempt failed"
+            # An `[ ] && sleep` one-liner would be false on the last pass,
+            # and under `set -e` that aborts the step before the error
+            # annotation below ever prints.
+            if [ "$attempt" -lt 3 ]; then sleep $((attempt * 60)); fi
+          done
+          echo "::error::${{ matrix.chain }} failed three times"
+          exit 1
+
+      # Back to the runner's own connection before the artifact upload, so a
+      # home line carries the chain's files and nothing else. always(), because
+      # a failed scrape should not leave the route pinned either.
+      - name: Stop leaving from home
+        if: always() && contains(fromJSON(env.HOME_EGRESS), matrix.chain)
+        run: sudo tailscale set --exit-node=
+
+      - name: Package the raw files
+        run: python scripts/package_raw.py --chain "${{ matrix.chain }}" --out raw
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: raw-${{ matrix.chain }}
+          path: raw/
+          # A chain that fails tonight is filled from its newest package still
+          # in retention, and carries that package's age - so the window is
+          # how many nights of failure a chain can survive.
+          retention-days: 7
+          if-no-files-found: error
