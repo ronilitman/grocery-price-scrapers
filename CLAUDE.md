@@ -44,8 +44,9 @@ field; check row counts and whether a CSV was actually written.
 HTTP 247), Hazi Hinam (Cloudflare 403), Victory, Mahsani Ashuk and Het Cohen
 (laibcatalog never answers), Osher Ad, and Netiv Hesed (Cloudflare). They are
 listed in `HOME_EGRESS` in `scrape.yml`, and their jobs leave through a
-Tailscale exit node (`vars.TS_EXIT_NODE`, currently the owner's Mac). If
-*exactly* those fail, suspect that the exit node is asleep before you suspect
+Tailscale exit node (`vars.TS_EXIT_NODE`, the owner's Raspberry Pi
+running Home Assistant OS, tailnet name `homeassistant`). If
+*exactly* those fail, suspect that the exit node is offline before you suspect
 the chains. A headless browser does not help; only the egress does. The runners
 join as `tag:scraper`, which can reach the internet through the exit node and
 nothing else on the tailnet.
