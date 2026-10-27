@@ -38,9 +38,9 @@ python scripts/fetch.py RAMI_LEVY            # -> dumps/, outputs/
 python scripts/package_raw.py --chain RAMI_LEVY --out raw
 ```
 
-On GitHub: **Actions → Scrape → Run workflow**. A few chains refuse
-datacenter addresses and are routed through a Tailscale exit node. A fork has
-no access to it, so those chains will fail there.
+On GitHub: **Actions → Scrape → Run workflow**. Every chain is
+routed through a Tailscale exit node at home, because several refuse datacenter
+addresses. A fork has no access to it, so every chain will fail there.
 
 ## License
 

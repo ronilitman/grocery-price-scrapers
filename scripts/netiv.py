@@ -18,7 +18,7 @@ connection the ``python-requests`` and ``curl`` default UAs get 403 while an
 empty UA, a browser UA and a made-up custom string all get
 200 - so a request must never go out with the library's default header. That
 looked like the whole rule and it is not: a GitHub runner is refused whatever
-UA it sends, which is why the chain is in ``HOME_EGRESS`` and leaves through
+UA it sends, which is why the chain leaves through
 the exit node. Both defences are live; satisfying one does not settle the
 other.
 
