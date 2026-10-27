@@ -40,16 +40,21 @@ parser reports `errors: False` with zero rows — that is how Super-Pharm shippe
 nothing for months (hence `scripts/superpharm.py`). Never trust the status
 field; check row counts and whether a CSV was actually written.
 
-**Seven chains cannot be scraped from a datacenter.** Super-Pharm (Reblaze,
-HTTP 247), Hazi Hinam (Cloudflare 403), Victory, Mahsani Ashuk and Het Cohen
-(laibcatalog never answers), Osher Ad, and Netiv Hesed (Cloudflare). They are
-listed in `HOME_EGRESS` in `scrape.yml`, and their jobs leave through a
-Tailscale exit node (`vars.TS_EXIT_NODE`, the owner's Raspberry Pi
-running Home Assistant OS, tailnet name `homeassistant`). If
-*exactly* those fail, suspect that the exit node is offline before you suspect
-the chains. A headless browser does not help; only the egress does. The runners
-join as `tag:scraper`, which can reach the internet through the exit node and
-nothing else on the tailnet.
+**Every chain leaves through the home exit node.** Seven could not be scraped
+from a datacenter at all: Super-Pharm (Reblaze, HTTP 247), Hazi Hinam
+(Cloudflare 403), Victory, Mahsani Ashuk and Het Cohen (laibcatalog never
+answers), Osher Ad, and Netiv Hesed (Cloudflare). Carrefour
+(`YAYNO_BITAN_AND_CARREFOUR`) began timing out from runners on 23 Oct 2026
+(ConnectTimeout to prices.carrefour.co.il) while answering from home, and the
+owner chose to route every chain home rather than keep catching them one at a
+time. `scrape.yml` used to list the routed chains in `HOME_EGRESS`; now every
+job joins the tailnet and uses the exit node (`vars.TS_EXIT_NODE`, the owner's
+Raspberry Pi running Home Assistant OS, tailnet name `homeassistant`). The exit
+node is a single point of failure: if *every* chain fails in one night, suspect
+that it is offline before you suspect the chains. A headless browser does not
+help; only the egress does. The runners join as `tag:scraper`, which can reach
+the internet through the exit node and nothing else on the tailnet. Load is
+capped by `max-parallel: 6` and the `scrape` concurrency group.
 
 **Netiv Hesed is scraped by this repo, not by the library.** The library's
 `NETIV_HASED` points at a host that answers 500, so the library drops the
